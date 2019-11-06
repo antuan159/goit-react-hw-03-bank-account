@@ -1,45 +1,24 @@
 import React, { Component } from 'react';
-import PropTypes from 'prop-types';
 import shortid from 'shortid';
-import { ToastContainer, toast } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
+import { ToastContainer } from 'react-toastify';
+import notyfy from '../services/notyfy';
 import storage from '../services/storage';
 import Controls from '../Controls';
 import Balance from '../Balance';
 import TransactionHistory from '../TransactionHistory';
 
 export default class Dashboard extends Component {
-  static propTypes = {
-    transactions: PropTypes.arrayOf(PropTypes.object),
-    balance: PropTypes.number,
-  };
-
-  static defaultProps = {
+  state = {
     transactions: [],
     balance: 0,
   };
 
-  state = {
-    transactions: this.props.transactions,
-    balance: this.props.balance,
-  };
-
-  historyBalance = {
-    expenses: 0,
-    income: 0,
-    balance: 0,
-  };
-
   componentDidMount() {
-    const loadTransactions = storage.get('transactions');
-    if (loadTransactions) {
-      this.onBalanceOrWithdraw(
-        loadTransactions.transactions,
-        loadTransactions.balance,
-      );
+    const savedTransactions = storage.get('transactions');
+    if (savedTransactions) {
       this.setState(() => ({
-        transactions: loadTransactions.transactions,
-        balance: loadTransactions.balance,
+        transactions: savedTransactions.transactions,
+        balance: savedTransactions.balance,
       }));
     }
   }
@@ -47,29 +26,12 @@ export default class Dashboard extends Component {
   componentDidUpdate(prevState) {
     const { transactions, balance } = this.state;
 
-    if (prevState.transaction !== transactions) {
+    if (prevState.transactions !== transactions) {
       storage.set('transactions', { transactions, balance });
     }
   }
 
-  notifyBalance = () => toast('Введите сумму для проведения операции!');
-
-  notifyNotBalance = () =>
-    toast('На счету недостаточно средств для проведения операции!');
-
   createTransaction = (amount, type) => {
-    if (amount === 0) {
-      this.notifyBalance();
-      return null;
-    }
-
-    if (type === 'expenses') {
-      if (amount > this.state.balance) {
-        this.notifyNotBalance();
-        return null;
-      }
-    }
-
     return {
       id: shortid.generate(),
       type,
@@ -78,54 +40,72 @@ export default class Dashboard extends Component {
     };
   };
 
-  handleDeposit = obj => {
-    const tmpTransaction = this.createTransaction(obj, 'income');
-    if (tmpTransaction) {
-      this.processTransaction(tmpTransaction, tmpTransaction.amount);
+  handleDeposit = inputAmount => {
+    const amount = Number(inputAmount);
+    if (amount < 0) {
+      notyfy.negativeBalance();
+      return;
     }
-  };
-
-  handleWithdraw = obj => {
-    const tmpTransaction = this.createTransaction(obj, 'expenses');
-    if (tmpTransaction) {
-      this.processTransaction(tmpTransaction, -tmpTransaction.amount);
+    if (amount === 0) {
+      notyfy.notSumm();
+      return;
     }
-  };
 
-  processTransaction = (transaction, amount) => {
-    const { transactions, balance } = this.state;
-    const newTransactions = [...transactions, transaction];
-    const newBalance = balance + amount;
-    this.onBalanceOrWithdraw(newTransactions, newBalance);
-
-    this.setState(() => ({
-      transactions: newTransactions,
-      balance: newBalance,
+    const transaction = this.createTransaction(amount, 'deposit');
+    this.setState(prevState => ({
+      transactions: [...prevState.transactions, transaction],
+      balance: prevState.balance + amount,
     }));
   };
 
-  onBalanceOrWithdraw = (transactions, bal) => {
-    this.historyBalance = transactions.reduce(
+  handleWithdraw = inputAmount => {
+    const amount = Number(inputAmount);
+
+    if (amount < 0) {
+      notyfy.negativeBalance();
+      return;
+    }
+    if (amount === 0) {
+      notyfy.notSumm();
+      return;
+    }
+
+    const { balance } = this.state;
+    if (amount > balance) {
+      notyfy.lackOfBalance();
+      return;
+    }
+
+    const transaction = this.createTransaction(amount, 'withdraw');
+    this.setState(prevState => ({
+      transactions: [...prevState.transactions, transaction],
+      balance: prevState.balance - amount,
+    }));
+  };
+
+  onBalanceOrWithdraw = () => {
+    const { transactions } = this.state;
+    return transactions.reduce(
       (acc, curent) => {
         return {
           ...acc,
           [curent.type]: curent.amount + acc[curent.type],
         };
       },
-      { expenses: 0, income: 0, balance: bal },
+      { deposit: 0, withdraw: 0 },
     );
   };
 
   render() {
-    const { transactions } = this.state;
-    const { expenses, income, balance } = this.historyBalance;
+    const { transactions, balance } = this.state;
+    const { deposit, withdraw } = this.onBalanceOrWithdraw();
     return (
       <div className="dashboard">
         <Controls
           onDeposit={this.handleDeposit}
           onWithdraw={this.handleWithdraw}
         />
-        <Balance expenses={expenses} income={income} balance={balance} />
+        <Balance expenses={withdraw} income={deposit} balance={balance} />
         {transactions.length > 0 && (
           <TransactionHistory hystory={transactions} />
         )}

@@ -14,10 +14,8 @@ export default class Controls extends Component {
   };
 
   handleChangeInput = e => {
-    const { value } = e.currentTarget;
-    if (value < 0) return;
     this.setState({
-      amount: value,
+      amount: e.currentTarget.value,
     });
   };
 
